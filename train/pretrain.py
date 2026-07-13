@@ -1,3 +1,4 @@
+from albertlm.checkpoint import save_checkpoint
 import torch
 from torch.utils.data import Dataset, DataLoader
 
@@ -79,7 +80,6 @@ def main():
 
     model.train()
 
-
     for step, batch in enumerate(loader):
 
         batch = batch.cuda()
@@ -89,7 +89,6 @@ def main():
             batch,
             labels=batch
         )
-
 
         loss = out["loss"]
 
@@ -102,15 +101,28 @@ def main():
 
 
         if step % 10 == 0:
+
             print(
-                step,
-                loss.item()
+                f"step {step} loss {loss.item():.4f}"
             )
 
 
-        if step == 200:
-            break
+        if step % 100 == 0 and step > 0:
 
+            save_checkpoint(
+                f"checkpoints/step_{step}.pt",
+                model,
+                optimizer,
+                step
+            )
+
+            print(
+                f"checkpoint saved: step {step}"
+            )
+
+
+        if step >= 200:
+            break
 
 
 if __name__=="__main__":
