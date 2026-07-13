@@ -1,3 +1,6 @@
+import json
+from datetime import datetime
+from pathlib import Path
 from albertlm.checkpoint import save_checkpoint
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -38,6 +41,42 @@ class ToyDataset(Dataset):
         )
 
         return tokens
+
+
+
+def write_status(
+    status,
+    step,
+    loss,
+    checkpoint=None
+):
+
+    data = {
+        "time": datetime.now().isoformat(),
+        "status": status,
+        "step": step,
+        "loss": float(loss),
+        "checkpoint": checkpoint,
+        "gpu": "RTX 5090D v2"
+    }
+
+
+    Path("logs").mkdir(
+        exist_ok=True
+    )
+
+
+    with open(
+        "logs/status.json",
+        "w"
+    ) as f:
+        json.dump(
+            data,
+            f,
+            indent=2
+        )
+
+
 
 def main():
 
@@ -106,14 +145,31 @@ def main():
                 f"step {step} loss {loss.item():.4f}"
             )
 
+            write_status(
+                "training",
+                step,
+                loss.item()
+            )
+
 
         if step % 100 == 0 and step > 0:
 
+            checkpoint_path = (
+                f"checkpoints/step_{step}.pt"
+            )
+
             save_checkpoint(
-                f"checkpoints/step_{step}.pt",
+                checkpoint_path,
                 model,
                 optimizer,
                 step
+            )
+
+            write_status(
+                "training",
+                step,
+                loss.item(),
+                checkpoint_path
             )
 
             print(
