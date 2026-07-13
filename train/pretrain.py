@@ -177,7 +177,7 @@ def main():
             )
 
 
-        if step >= 200:
+        if step >= 1000000:
             break
 
 
