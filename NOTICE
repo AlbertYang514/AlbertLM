@@ -1,0 +1,35 @@
+[中文说明]
+
+AlbertLM
+版权所有 © 2026 Albert Yang
+
+本产品包含 AlbertLM 项目开发的源代码、配置、文档和 tokenizer 资产。
+
+除非另有说明，本仓库分发的源代码、配置文件、文档和 tokenizer
+资产依据 Apache License 2.0 提供。
+
+训练数据不随本仓库分发，仍分别受其原始许可证和使用条款约束。
+
+AlbertLM 是一个独立项目。文档中出现的上游数据集、服务商、软件库和
+组织名称仅用于来源说明和归属识别，不代表这些组织为 AlbertLM 提供背书。
+
+----------------
+
+[English Notice]
+
+AlbertLM
+Copyright 2026 Albert Yang
+
+This product includes software and tokenizer assets developed as part of
+the AlbertLM project.
+
+Unless otherwise stated, source code, configuration files, documentation,
+and tokenizer assets distributed in this repository are licensed under
+the Apache License, Version 2.0.
+
+Training datasets are not distributed with this repository and remain
+subject to their respective licenses and terms of use.
+
+AlbertLM is an independent project. The names of upstream datasets,
+service providers, libraries, and organizations are used only for
+attribution and identification. No endorsement is implied.

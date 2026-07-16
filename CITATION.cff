@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use AlbertLM, please cite this repository."
+title: "AlbertLM"
+type: software
+authors:
+  - family-names: "Yang"
+    given-names: "Albert"
+repository-code: "https://github.com/AlbertYang514/AlbertLM"
+license: "Apache-2.0"

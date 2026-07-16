@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "model": "AlbertLM-1.7B-Base",
+  "tokenizer_vocab_size": 65536,
+  "sequence_length": 2048,
+  "packed_training_tokens": 14356774925,
+  "base_stream_before_synthetic_tokens": 14331990016,
+  "deepseek_synthetic_tokens": 24784909,
+  "audited_pretrain_mixture": {
+    "train_tokens": 9639077888,
+    "validation_tokens": 47388672,
+    "exact_dedup_hashes": 20409541
+  },
+  "sources": [
+    {
+      "name": "fineweb-edu-en",
+      "dataset": "HuggingFaceFW/fineweb-edu",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "train_tokens": 3000006656,
+      "license": "ODC-By-1.0",
+      "redistributed": false
+    },
+    {
+      "name": "fineweb2-zh",
+      "dataset": "HuggingFaceFW/fineweb-2",
+      "subset": "cmn_Hani",
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "train_tokens": 2999998464,
+      "license": "ODC-By-1.0",
+      "redistributed": false
+    },
+    {
+      "name": "fineweb2-ja",
+      "dataset": "HuggingFaceFW/fineweb-2",
+      "subset": "jpn_Jpan",
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "train_tokens": 999999488,
+      "license": "ODC-By-1.0",
+      "redistributed": false
+    },
+    {
+      "name": "wikipedia-en",
+      "dataset": "Wikimedia Wikipedia-derived local corpus",
+      "train_tokens": 750000000,
+      "license": "CC-BY-SA-4.0/GFDL",
+      "redistributed": false
+    },
+    {
+      "name": "wikipedia-zh",
+      "dataset": "Wikimedia Wikipedia-derived local corpus",
+      "train_tokens": 389077735,
+      "license": "CC-BY-SA-4.0/GFDL",
+      "redistributed": false
+    },
+    {
+      "name": "code-permissive",
+      "dataset": "bigcode/the-stack-dedup",
+      "revision": "17cad72c886a2858e08d4c349a00d6466f54df63",
+      "train_tokens": 1499998208,
+      "license": "source-specific permissive licenses",
+      "redistributed": false,
+      "provenance_records": 649151,
+      "unique_provenance_keys": 649151
+    },
+    {
+      "name": "deepseek-synthetic",
+      "provider": "DeepSeek API",
+      "model": "deepseek-v4-pro",
+      "documents_kept": 9869,
+      "documents_rejected": 131,
+      "api_prompt_tokens": 1841871,
+      "api_completion_tokens": 19151185,
+      "albertlm_tokens": 24784909,
+      "redistributed": false
+    }
+  ]
+}
