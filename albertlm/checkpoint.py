@@ -1,27 +1,39 @@
-import torch
+import os
 from pathlib import Path
+
+import torch
 
 
 def save_checkpoint(
     path,
     model,
     optimizer,
-    step
+    step,
 ):
     path = Path(path)
 
     path.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
+    )
+
+    temporary_path = path.with_name(
+        path.name + ".tmp"
     )
 
     torch.save(
         {
-            "step": step,
+            "step": int(step),
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
         },
-        path
+        temporary_path,
+    )
+
+    # 同一文件系统内原子替换，防止写到一半留下损坏 checkpoint。
+    os.replace(
+        temporary_path,
+        path,
     )
 
 
@@ -29,12 +41,13 @@ def load_checkpoint(
     path,
     model,
     optimizer,
-    device="cuda"
+    device="cuda",
 ):
+    path = Path(path)
 
     checkpoint = torch.load(
         path,
-        map_location=device
+        map_location=device,
     )
 
     model.load_state_dict(
@@ -45,4 +58,6 @@ def load_checkpoint(
         checkpoint["optimizer"]
     )
 
-    return checkpoint["step"]
+    return int(
+        checkpoint["step"]
+    )

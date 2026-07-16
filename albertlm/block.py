@@ -2,12 +2,13 @@ import torch.nn as nn
 
 from .rmsnorm import RMSNorm
 from .attention import GQAAttention
+from .linear import LinearMode
 from .mlp import SwiGLU
 
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, linear_mode: LinearMode):
         super().__init__()
 
         self.input_norm = RMSNorm(
@@ -16,7 +17,8 @@ class TransformerBlock(nn.Module):
         )
 
         self.attention = GQAAttention(
-            config
+            config,
+            linear_mode,
         )
 
         self.post_attention_norm = RMSNorm(
@@ -26,7 +28,8 @@ class TransformerBlock(nn.Module):
 
         self.mlp = SwiGLU(
             config.hidden_size,
-            config.intermediate_size
+            config.intermediate_size,
+            linear_mode,
         )
 
 
@@ -60,4 +63,3 @@ class TransformerBlock(nn.Module):
 
 
         return x
-

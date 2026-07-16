@@ -1,4 +1,4 @@
 #!/bin/bash
 
-cat ~/AlbertLM/logs/status.json
+cat /data/AlbertLM/logs/status.json
 

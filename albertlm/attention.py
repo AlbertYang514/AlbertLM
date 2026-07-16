@@ -2,12 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .linear import LinearMode, make_linear
 from .rotary import apply_rope, build_rope_cache
 
 
 class GQAAttention(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, linear_mode: LinearMode):
         super().__init__()
 
         self.hidden_size = config.hidden_size
@@ -31,29 +32,33 @@ class GQAAttention(nn.Module):
         )
 
 
-        self.q_proj = nn.Linear(
+        self.q_proj = make_linear(
             self.hidden_size,
             self.hidden_size,
-            bias=config.attention_bias
+            bias=config.attention_bias,
+            mode=linear_mode,
         )
 
-        self.k_proj = nn.Linear(
+        self.k_proj = make_linear(
             self.hidden_size,
             self.num_kv_heads * self.head_dim,
-            bias=config.attention_bias
+            bias=config.attention_bias,
+            mode=linear_mode,
         )
 
-        self.v_proj = nn.Linear(
+        self.v_proj = make_linear(
             self.hidden_size,
             self.num_kv_heads * self.head_dim,
-            bias=config.attention_bias
+            bias=config.attention_bias,
+            mode=linear_mode,
         )
 
 
-        self.o_proj = nn.Linear(
+        self.o_proj = make_linear(
             self.hidden_size,
             self.hidden_size,
-            bias=config.attention_bias
+            bias=config.attention_bias,
+            mode=linear_mode,
         )
 
 
@@ -133,7 +138,8 @@ class GQAAttention(nn.Module):
             seq_len,
             self.head_dim,
             x.device,
-            self.rope_theta
+            theta=self.rope_theta,
+            dtype=q.dtype,
         )
 
         cos = cos[None,None,:,:]
@@ -148,8 +154,6 @@ class GQAAttention(nn.Module):
         )
 
 
-        k = self.repeat_kv(k)
-        v = self.repeat_kv(v)
 
 
         out = F.scaled_dot_product_attention(
@@ -158,7 +162,11 @@ class GQAAttention(nn.Module):
             v,
             attn_mask=attention_mask,
             dropout_p=0.0,
-            is_causal=True
+            is_causal=True,
+            enable_gqa=(
+                self.num_heads
+                != self.num_kv_heads
+            ),
         )
 
 
@@ -172,4 +180,3 @@ class GQAAttention(nn.Module):
 
 
         return self.o_proj(out)
-
