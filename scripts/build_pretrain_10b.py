@@ -8,6 +8,7 @@ import random
 import time
 import unicodedata
 from collections import OrderedDict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,10 @@ LOCK_PATH = (
 PROVENANCE_PATH = (
     ROOT
     / "data/manifests/code-provenance.jsonl.gz"
+)
+PROVENANCE_JOURNAL_PATH = (
+    ROOT
+    / "data/manifests/code-provenance.jsonl"
 )
 
 SEQ_LEN = 2048
@@ -90,6 +95,385 @@ def log(message):
         message,
         flush=True,
     )
+
+
+def fsync_directory(path):
+    directory_fd = os.open(
+        Path(path),
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0),
+    )
+
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _temporary_path(path, label):
+    path = Path(path)
+    return path.with_name(
+        f"{path.name}.{label}-{os.getpid()}-"
+        f"{time.time_ns()}"
+    )
+
+
+def _validate_provenance_record(line, line_number, path):
+    if not line.endswith(b"\n"):
+        raise ValueError(
+            f"{path}:{line_number}: record is not newline-terminated"
+        )
+
+    try:
+        record = json.loads(
+            line.decode("utf-8")
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"{path}:{line_number}: invalid JSON record"
+        ) from error
+
+    if not isinstance(record, dict):
+        raise ValueError(
+            f"{path}:{line_number}: record is not a JSON object"
+        )
+
+    missing = {
+        "source",
+        "hash_xxh3_64",
+    } - record.keys()
+
+    if missing:
+        raise ValueError(
+            f"{path}:{line_number}: missing required fields: "
+            f"{', '.join(sorted(missing))}"
+        )
+
+
+def validate_provenance_journal(
+    journal_path=PROVENANCE_JOURNAL_PATH,
+):
+    journal_path = Path(journal_path)
+    count = 0
+
+    with journal_path.open("rb") as handle:
+        for count, line in enumerate(
+            handle,
+            start=1,
+        ):
+            _validate_provenance_record(
+                line,
+                count,
+                journal_path,
+            )
+
+    return count
+
+
+def validate_provenance_archive(
+    archive_path,
+    expected_count=None,
+):
+    archive_path = Path(archive_path)
+    count = 0
+
+    with gzip.open(archive_path, "rb") as handle:
+        for count, line in enumerate(
+            handle,
+            start=1,
+        ):
+            _validate_provenance_record(
+                line,
+                count,
+                archive_path,
+            )
+
+    if (
+        expected_count is not None
+        and count != expected_count
+    ):
+        raise ValueError(
+            f"{archive_path}: expected {expected_count} records, "
+            f"found {count}"
+        )
+
+    return count
+
+
+def repair_trailing_partial_record(
+    journal_path=PROVENANCE_JOURNAL_PATH,
+):
+    journal_path = Path(journal_path)
+
+    if (
+        not journal_path.exists()
+        or journal_path.stat().st_size == 0
+    ):
+        return None
+
+    with journal_path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+
+        if handle.read(1) == b"\n":
+            return None
+
+        position = handle.tell() - 1
+        boundary = 0
+
+        while position > 0:
+            start = max(0, position - 64 * 1024)
+            handle.seek(start)
+            chunk = handle.read(position - start)
+            newline = chunk.rfind(b"\n")
+
+            if newline >= 0:
+                boundary = start + newline + 1
+                break
+
+            position = start
+
+        handle.seek(boundary)
+        partial = handle.read()
+
+    timestamp = datetime.now(
+        timezone.utc
+    ).strftime("%Y%m%dT%H%M%S%fZ")
+    quarantine_path = journal_path.with_name(
+        f"{journal_path.name}.quarantine-{timestamp}"
+    )
+    quarantine_fd = os.open(
+        quarantine_path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o666,
+    )
+
+    try:
+        view = memoryview(partial)
+
+        while view:
+            written = os.write(
+                quarantine_fd,
+                view,
+            )
+            view = view[written:]
+
+        os.fsync(quarantine_fd)
+    finally:
+        os.close(quarantine_fd)
+
+    with journal_path.open("r+b") as handle:
+        handle.truncate(boundary)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    fsync_directory(journal_path.parent)
+    return quarantine_path
+
+
+def prepare_provenance_journal(
+    journal_path=PROVENANCE_JOURNAL_PATH,
+    archive_path=PROVENANCE_PATH,
+):
+    journal_path = Path(journal_path)
+    archive_path = Path(archive_path)
+    journal_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if journal_path.exists():
+        repair_trailing_partial_record(
+            journal_path
+        )
+        validate_provenance_journal(
+            journal_path
+        )
+        return journal_path
+
+    temporary_path = _temporary_path(
+        journal_path,
+        "tmp",
+    )
+
+    try:
+        with temporary_path.open("xb") as output:
+            if archive_path.exists():
+                with gzip.open(
+                    archive_path,
+                    "rb",
+                ) as source:
+                    for line_number, line in enumerate(
+                        source,
+                        start=1,
+                    ):
+                        _validate_provenance_record(
+                            line,
+                            line_number,
+                            archive_path,
+                        )
+                        output.write(line)
+
+            output.flush()
+            os.fsync(output.fileno())
+
+        os.replace(
+            temporary_path,
+            journal_path,
+        )
+        fsync_directory(journal_path.parent)
+    except Exception:
+        temporary_path.unlink(
+            missing_ok=True
+        )
+        raise
+
+    return journal_path
+
+
+class ProvenanceJournal:
+    def __init__(
+        self,
+        path=PROVENANCE_JOURNAL_PATH,
+    ):
+        self.path = Path(path)
+        self.path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self._fd = os.open(
+            self.path,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+            0o666,
+        )
+
+    def write_record(self, record):
+        payload = (
+            json.dumps(
+                record,
+                ensure_ascii=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+        view = memoryview(payload)
+
+        while view:
+            written = os.write(
+                self._fd,
+                view,
+            )
+            view = view[written:]
+
+    def flush(self):
+        # Writes are unbuffered; this method keeps the durability API explicit.
+        return None
+
+    def fileno(self):
+        return self._fd
+
+    def close(self):
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
+
+
+def publish_provenance_archive(
+    journal_path=PROVENANCE_JOURNAL_PATH,
+    archive_path=PROVENANCE_PATH,
+):
+    journal_path = Path(journal_path)
+    archive_path = Path(archive_path)
+    expected_count = validate_provenance_journal(
+        journal_path
+    )
+    archive_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    temporary_path = _temporary_path(
+        archive_path,
+        "tmp",
+    )
+    previous_path = None
+    replaced_archive = False
+
+    try:
+        with journal_path.open("rb") as source:
+            with gzip.open(
+                temporary_path,
+                "wb",
+                compresslevel=6,
+            ) as output:
+                while True:
+                    chunk = source.read(
+                        1024 * 1024
+                    )
+
+                    if not chunk:
+                        break
+
+                    output.write(chunk)
+
+        with temporary_path.open("rb") as handle:
+            os.fsync(handle.fileno())
+
+        validate_provenance_archive(
+            temporary_path,
+            expected_count=expected_count,
+        )
+
+        if archive_path.exists():
+            previous_path = _temporary_path(
+                archive_path,
+                "previous",
+            )
+            os.link(
+                archive_path,
+                previous_path,
+            )
+            fsync_directory(
+                archive_path.parent
+            )
+
+        os.replace(
+            temporary_path,
+            archive_path,
+        )
+        replaced_archive = True
+        fsync_directory(archive_path.parent)
+
+        if previous_path is not None:
+            previous_path.unlink()
+    except Exception:
+        if replaced_archive:
+            if (
+                previous_path is not None
+                and previous_path.exists()
+            ):
+                os.replace(
+                    previous_path,
+                    archive_path,
+                )
+            else:
+                archive_path.unlink(
+                    missing_ok=True
+                )
+
+            fsync_directory(
+                archive_path.parent
+            )
+
+        temporary_path.unlink(
+            missing_ok=True
+        )
+
+        if previous_path is not None:
+            previous_path.unlink(
+                missing_ok=True
+            )
+
+        raise
+
+    return expected_count
 
 
 def tokens_in_file(path):
@@ -414,7 +798,7 @@ def process_source(
     eos_id,
     seen,
     seen_handle,
-    provenance_handle,
+    provenance_journal,
 ):
     train_writer = BinaryWriter(
         train_path(name)
@@ -507,17 +891,13 @@ def process_source(
             accepted += 1
 
             if metadata:
-                provenance_handle.write(
-                    json.dumps(
-                        {
-                            "hash_xxh3_64":
-                                f"{document_hash:016x}",
-                            "source": name,
-                            **metadata,
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
+                provenance_journal.write_record(
+                    {
+                        "hash_xxh3_64":
+                            f"{document_hash:016x}",
+                        "source": name,
+                        **metadata,
+                    }
                 )
 
             if (
@@ -542,10 +922,13 @@ def process_source(
                 train_writer.flush()
                 validation_writer.flush()
                 seen_handle.flush()
-                provenance_handle.flush()
+                provenance_journal.flush()
 
                 os.fsync(
                     seen_handle.fileno()
+                )
+                os.fsync(
+                    provenance_journal.fileno()
                 )
 
                 log(
@@ -646,10 +1029,13 @@ def process_source(
         train_writer.flush()
         validation_writer.flush()
         seen_handle.flush()
-        provenance_handle.flush()
+        provenance_journal.flush()
 
         os.fsync(
             seen_handle.fileno()
+        )
+        os.fsync(
+            provenance_journal.fileno()
         )
 
         done_path = (
@@ -1010,15 +1396,14 @@ def main():
         resolve_revisions()
     )
 
+    prepare_provenance_journal()
+
     seen, seen_handle = (
         load_seen_hashes()
     )
 
-    provenance_handle = gzip.open(
-        PROVENANCE_PATH,
-        "at",
-        encoding="utf-8",
-        compresslevel=6,
+    provenance_journal = ProvenanceJournal(
+        PROVENANCE_JOURNAL_PATH
     )
 
     try:
@@ -1053,16 +1438,26 @@ def main():
                 eos_id,
                 seen,
                 seen_handle,
-                provenance_handle,
+                provenance_journal,
             )
 
     finally:
-        seen_handle.flush()
-        os.fsync(
-            seen_handle.fileno()
-        )
-        seen_handle.close()
-        provenance_handle.close()
+        try:
+            try:
+                seen_handle.flush()
+                os.fsync(
+                    seen_handle.fileno()
+                )
+            finally:
+                seen_handle.close()
+        finally:
+            try:
+                provenance_journal.flush()
+                os.fsync(
+                    provenance_journal.fileno()
+                )
+            finally:
+                provenance_journal.close()
 
     train_output = (
         PROCESSED_DIR
@@ -1156,6 +1551,8 @@ def main():
         + "\n",
         encoding="utf-8",
     )
+
+    publish_provenance_archive()
 
     log(
         "ALL COMPLETE; "
